@@ -1,0 +1,278 @@
+---
+title: "network"
+author: "Misha Ash"
+date: "5/26/2018"
+output: 
+  flexdashboard::flex_dashboard:
+    vertical_layout: fill
+---
+
+### a glimpse of caregiving relationships
+    
+I got caught in quite a data munging rabbit hole, but crawled out eventually.
+
+Using Color Brewer, I attempted to build a scale of color vectors to modify the node colors but could not get it working. 
+
+The arrows did not work for me either — I tried making them edges directed from the domain of caregivers to the codomain of clients.
+
+    
+### caregiving network
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(knitr)
+library(broom)
+library(stringr)
+
+library(flexdashboard)
+
+library(networkD3)
+library(igraph)
+library(network)
+library(sna)
+library(visNetwork)
+library(threejs)
+library(ndtv)
+
+
+options(digits = 3)
+set.seed(144)
+
+base_size <- 22
+theme_set(theme_minimal(base_size = base_size))
+```
+
+```{r import, include = FALSE}
+data <- read_csv("~/R/Data Viz/ntg-informavorous/057_net_data_anon 2.csv", col_names = TRUE,
+                 col_types = list(col_character(), 
+                                  col_character(), 
+                                  col_character(),
+                                  col_double(), 
+                                  col_character(), 
+                                  col_character()))[-1,] %>%
+  as.data.frame() %>%
+  select(CX, CG, TTL, "IHSS ?", "REL ?") %>%
+  separate(CX, into = c("to_type", "to"), sep = "_") %>%
+  separate(CG, into = c("from_type", "from"), sep = "_")
+
+as.tibble(data)
+```
+
+```{r simple network, eval = FALSE, include = FALSE}
+simpleNetwork(data[ , 1:2])
+```
+
+```{r network tests, eval = FALSE, include = FALSE}
+net <- graph_from_data_frame(d = edges, vertices = nodes, directed = T) 
+net
+
+plot(net)
+
+net <- simplify(net, remove.multiple = F, remove.loops = T) 
+
+plot(net, edge.arrow.size=.9,vertex.label=NA)
+
+l <- layout_in_circle(net)
+plot(net, layout = l)
+
+cut.off <- mean(nodes$TTL) 
+net.sp <- delete_edges(net, E(net)[TTL<cut.off])
+plot(net.sp) 
+
+netm <- as_adjacency_matrix(net, attr="TTL", sparse=F)
+
+palf <- colorRampPalette(c("gold", "dark orange")) 
+heatmap(netm[1:50,50:1], Rowv = NA, Colv = NA, col = palf(100), 
+        scale="none", margins=c(10,10) )
+
+deg.dist <- degree_distribution(net, cumulative=T, mode="all")
+plot( x=0:max(deg), y=1-deg.dist, pch=19, cex=1.2, col="orange", 
+      xlab="Degree", ylab="Cumulative Frequency")
+
+E(net)$width <- 1.5
+plot(net, edge.color=c("dark red", "slategrey")[(E(net)$type=="hyperlink")+1],
+      vertex.color="gray40", layout=layout_in_circle, edge.curved=.7)
+
+visNetwork(nodes, edges, width="100%", height="400px", main="Network!")
+
+```
+
+
+```{r edges, include = FALSE}
+net_edges <- data %>%
+  mutate(domain = sort(.$from)) %>% 
+  mutate(domain = as.numeric(factor(.$from)) -1) %>%
+  
+  # continue numbering of codomain taking domain cardinality into account (reproduceably)
+  mutate(codomain = as.numeric(factor(.$to)) + (length(unique(.$from))) - 1) %>%
+  # create alternatively labeled vector specifying relation type
+  mutate(relation = if_else(`REL ?` == "N", "unrelated", "relatives")) %>%
+  # remove unnecessary variables
+  select(-`IHSS ?`, -`REL ?`)
+  
+
+```
+
+```{r nodes, include = FALSE}
+
+net_nodes <- data %>%
+  mutate(codomain = str_c(to, to_type, sep="_")) %>%
+  mutate(domain = str_c(from, from_type, sep="_")) %>%
+  select(domain, codomain, TTL, `IHSS ?`) %>%
+  mutate(waiver = if_else(`IHSS ?` == "N", "PC-HMK", "IHSS")) %>%
+  select(-`IHSS ?`) %>%
+
+#  unite(to_type, to, sep = "_")
+  
+  gather(type, id, -TTL, -waiver)  %>%
+  separate(id, into = c("id", "role"), sep = "_") %>%
+  mutate(property = str_c(role, waiver, sep = "_")) %>%
+  select(-waiver, -type, -role) %>%
+  
+  group_by(property, id) %>%
+
+  summarize(TTL = sum(TTL)) %>%
+  arrange(id, property) %>%
+  as.data.frame() %>%
+  mutate(index = row_number() -1)
+
+
+duplicates <- filter(net_nodes[duplicated(net_nodes$id), ]) %>%
+  mutate(X = "MULT") %>%
+  select(id, X)
+
+net_nodes <- net_nodes %>%
+  left_join(duplicates, by = "id") 
+
+# replace NAs in X vector (to subsequently replace them with values from property)
+net_nodes[is.na(net_nodes$X), 5] <- 0
+
+net_nodes <- net_nodes %>%
+  separate(property, into = c("role", "property"), sep = "_") %>%
+  mutate(waiver = if_else(X == "MULT", "MULT", property)) %>%
+  
+  select(-index, -X, -property) %>%
+  
+  group_by(role, waiver, id) %>%
+
+  summarize(TTL = sum(TTL)) %>%
+  arrange(role, id) %>%
+  as.data.frame() %>%
+  mutate(index = row_number() -1) %>%
+  mutate(group = str_c(role, waiver, sep = " "))
+
+```
+
+```{r edge weights, include = FALSE}
+
+edge_width_scale <- function(x){(((x-min(x))/(max(x)-min(x))) + 1)*2}
+x <- edge_width_scale(net_nodes$TTL)
+```
+
+```{r edge colors, include = FALSE}
+
+## Specify colours for specific edges
+# Find links to Valjean (11)
+which(net_nodes == "domain", arr = TRUE)[1] - 1
+
+edge_feature <-  which(net_edges == "relatives", arr = TRUE)[, 1]
+
+# Create a colour vector
+edge_colors <- ifelse(1:nrow(net_edges) %in% edge_feature, "#d73027", "#fee08b")
+
+```
+
+```{r node colors, include = FALSE}
+# for colourScale parameter
+
+node_colors <- c("#1b7837", "#5aae61", "#a6dba0", "#9970ab", "#762a83", "#fdb863")
+```
+
+```{r forceNetwork, echo = FALSE}
+forceNetwork(Links = net_edges, Nodes = net_nodes, Source = "domain", Target = "codomain",
+               NodeID = "index", Group = "group", linkWidth = x,
+               linkColour = edge_colors, #colourScale = "node_colors",
+               fontSize = 12, zoom = T, legend = T,
+               Nodesize = 4, opacity = 0.9, charge = -8) #, 
+              # width = 600, height = 400)
+```
+
+
+---
+
+
+
+
+```{r export, eval = FALSE, include = FALSE}
+nodes <- read.csv("Dataset1-Media-Example-NODES.csv", header=T, as.is=T)
+links <- read.csv("Dataset1-Media-Example-EDGES.csv", header=T, as.is=T)
+```
+
+
+```{r eval = FALSE, include = FALSE}
+library(scales)
+
+net_nodes <- nodes %>%
+  mutate(test = sort(.$id)) #%>% 
+
+  summarize(TTL = sum(TTL))
+
+net_nodes <- cbind(idn = factor(net_nodes$id, levels = net_nodes$id), net_nodes)
+
+# net_nodes <- cbind(idnum = as.numeric(factor(net_nodes$id, levels = net_nodes$id)) -1, net_nodes)
+
+
+```
+
+```{r munging struggle residues, eval = FALSE, include = FALSE}
+
+row.names(net_nodes[duplicated(net_nodes$id), ])
+
+
+# identify which columns contain the values you might want to replace
+data[ , 2:3 ]
+
+
+# subset it with extended bracketing..
+data[ , 2:3 ][ data[ , 2:3 ] == 4 ]
+# ..those were the values you're going to replace
+
+# now overwrite 'em with tens
+data[ , 2:3 ][ data[ , 2:3 ] == 4 ] <- 10
+
+# look at the final data
+data
+
+
+
+
+
+
+  mutate(node = if_else(X == "MULT", "MULT", property)) %>%
+  select(id, TTL, index, node) %>%
+
+
+  mutate(properties = (ifelse(X == "MULT", "MULT", .$property)))
+
+net_nodes_TEST <- net_nodes %>%
+  mutate(TEST = replace(.$property, 
+                          list = row.names(net_nodes[duplicated(net_nodes$id), ]), 
+                          values = "BOTH"))
+
+P <- xor(row.names(net_nodes[duplicated(net_nodes$id), ]))
+
+net_nodes[duplicated(net_nodes$id), 1] <- net_nodes[duplicated(net_nodes$id), "BOTH"]
+
+Q <- filter(net_nodes[duplicated(net_nodes$id), ])
+
+df[find.a, "X1"] <- df[find.a, "X2"]
+
+
+  mutate(properties = ifelse(.$id == net_nodes[duplicated(net_nodes$id), 2],
+                              "BOTH", property))
+
+
+```
+

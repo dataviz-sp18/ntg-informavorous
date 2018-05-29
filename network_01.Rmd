@@ -1,0 +1,163 @@
+---
+title: "network"
+author: "Misha Ash"
+date: "5/26/2018"
+output: flexdashboard::flex_dashboard
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(knitr)
+library(broom)
+library(stringr)
+library(modelr)
+library(forcats)
+
+
+library(flexdashboard)
+
+library(networkD3)
+library(igraph)
+library(network)
+library(sna)
+library(visNetwork)
+library(threejs)
+library(ndtv)
+
+
+options(digits = 3)
+set.seed(144)
+
+base_size <- 22
+theme_set(theme_minimal(base_size = base_size))
+```
+
+
+
+```{r import}
+data <- read_csv("~/R/Data Viz/ntg-informavorous/057_net_data_anon.csv", col_names = TRUE)[-1,] %>%
+  select(CX, CG, TTL) %>%
+  separate(CX, into = c("to_type", "to"), sep = "_") %>%
+  separate(CG, into = c("from_type", "from"), sep = "_")
+
+as.tibble(data)
+```
+
+
+
+```{r simple network}
+simpleNetwork(data[ , 1:2])
+```
+
+```{r}
+links <- data # %>%
+#  mutate(CG = str_sub(.$CG, 4)) %>%
+#  mutate(from = CG, to = CX)
+
+# nodes
+
+nrow(nodes); length(unique(nodes$id))
+nrow(edges); nrow(unique(edges[,c("CG", "CX")]))
+  
+```
+
+```{r network tests, eval = FALSE}
+net <- graph_from_data_frame(d = edges, vertices = nodes, directed = T) 
+net
+
+plot(net)
+
+net <- simplify(net, remove.multiple = F, remove.loops = T) 
+
+plot(net, edge.arrow.size=.9,vertex.label=NA)
+
+l <- layout_in_circle(net)
+plot(net, layout = l)
+
+cut.off <- mean(nodes$TTL) 
+net.sp <- delete_edges(net, E(net)[TTL<cut.off])
+plot(net.sp) 
+
+netm <- as_adjacency_matrix(net, attr="TTL", sparse=F)
+
+palf <- colorRampPalette(c("gold", "dark orange")) 
+heatmap(netm[1:50,50:1], Rowv = NA, Colv = NA, col = palf(100), 
+        scale="none", margins=c(10,10) )
+
+deg.dist <- degree_distribution(net, cumulative=T, mode="all")
+plot( x=0:max(deg), y=1-deg.dist, pch=19, cex=1.2, col="orange", 
+      xlab="Degree", ylab="Cumulative Frequency")
+
+E(net)$width <- 1.5
+plot(net, edge.color=c("dark red", "slategrey")[(E(net)$type=="hyperlink")+1],
+      vertex.color="gray40", layout=layout_in_circle, edge.curved=.7)
+
+visNetwork(nodes, edges, width="100%", height="400px", main="Network!")
+
+```
+
+
+
+
+```{r}
+net_edges <- links %>%
+  mutate(domain = sort(.$from)) %>% 
+  mutate(domain = as.numeric(factor(links$from)) -1) %>%
+  mutate(codomain = as.numeric(factor(links$to)) +117)
+
+net_nodes <- data %>%
+  mutate(codomain = str_c(to, to_type, sep="_")) %>%
+  mutate(domain = str_c(from, from_type, sep="_")) %>%
+  select(domain, codomain, TTL) %>%
+#  unite(to_type, to, sep = "_")
+  gather(type, id, -TTL)  %>%
+  separate(id, into = c("id", "role"), sep = "_") %>%
+  group_by(id, role) %>%
+  summarize(TTL = sum(TTL)) %>%
+  arrange(role, id) %>%
+  as.data.frame() %>%
+  mutate(index = row_number() -1)
+
+edge_width_scale <- function(x){(((x-min(x))/(max(x)-min(x))) + 1)*2}
+x <- edge_width_scale(net_nodes$TTL)
+
+```
+
+```{r}
+forceNetwork(Links = net_edges, Nodes = net_nodes, Source = "domain", Target = "codomain",
+               NodeID = "index", Group = "role", linkWidth = x,
+               linkColour = "#afafaf", fontSize = 12, zoom = T, legend = T,
+               Nodesize = 3, opacity = 0.8, charge = -5) #, 
+              # width = 600, height = 400)
+```
+
+
+
+```{r}
+forceNetwork(Links = data$TTL, Nodes = data$CX, Source = "source",
+             Target = "target", Value = "value", NodeID = "name",
+             Group = "group", opacity = 1, zoom = F, bounded = T)
+```
+
+```{r}
+nodes <- read.csv("Dataset1-Media-Example-NODES.csv", header=T, as.is=T)
+links <- read.csv("Dataset1-Media-Example-EDGES.csv", header=T, as.is=T)
+```
+
+### scraps 
+```{r}
+library(scales)
+
+net_nodes <- nodes %>%
+  mutate(test = sort(.$id)) #%>% 
+
+  summarize(TTL = sum(TTL))
+
+net_nodes <- cbind(idn = factor(net_nodes$id, levels = net_nodes$id), net_nodes)
+
+# net_nodes <- cbind(idnum = as.numeric(factor(net_nodes$id, levels = net_nodes$id)) -1, net_nodes)
+```
+
+
