@@ -7,15 +7,28 @@ output:
     vertical_layout: fill
 ---
 
+story {data-orientation=rows}
+===================================== 
+
 ### a glimpse of caregiving relationships
+
+The following visualization uses a biweekly payroll dataset for people providing care to elderly and disabled individuals in their homes to generate a network of relationships between caregivers and consumers. Each node represents an individual and the size of the nodes corresponds to number of hours of care either provided by the caregiver (CG) or recieved by the consumer (CX). Node colors correspond to the type of program through which services are provided: In-Home Support Services (IHSS), Personal Care and Homemaking (PC-HMK), or both. The color of edges indicates whether a CX-CG relationship is between relatives (red) or not (light orange). 
+
+The network reveals a few general features of the relationships. First, the network shows little interconnectivity, with most connections forming independent pairs of nodes. This shows that the majority of caregivers provide care to one consumer and the majority of consumers receive care from one caregiver. This appears to be more likely when the caregiver is related to the consumer (red edge), and the most interconnected portions of the network involved non-relative cases that are not on the IHSS program. We also see that most care is provided through the IHSS program. Variation in the size of cases is also apparent, and the largest CX nodes (consumers receiving the most care) seem more likely to be connected to more than one CG node (receiving care from more than one caregiver).
+
+Overall, it is not clear that this network is an especially useful way of discovering such features of the data. It seems less precise than descriptive statistics. However, building on this visualization may make it more useful for seeing broader trends. For example, creating a series of visualizations like this that can change over time (perhaps in an interactive way, with a slider that can be moved across time points) may provide an insightful picture in the way connections change. It may even show some things basic descriptive data would not. For example, we might see connections between nodes switch without the nodes changing, suggesting that caregivers may remain employed while people to whom they provide care change. Descriptives would not distinguish this from one caregiver leaving and another joining the workforce. We may also see things like whether connections in relative cases are more stable than in non-relative cases, though this could also be described in other ways that may be more effective (such as the mean duration of relative and non-relative cases).
+
+### design choices and challenges
+
+I chose to visualize this network both because I find networks to be an inherently interesting visual form and because in this context I was curious about what it could reveal about the data to which I have access. It seems that visualizing relationships among peope within an organization can tell a valuable story. Indeed, seeing the extent to which the network is dispersed is revealing. However, it seems that for the network to be truly insightful it would need to go beyond what I managed to create in this brief stint. One possibility I already mentioned. Another would involve a fuller dataset with more information. For instance, including staff to see how the extent of their interactions with caregivers and clients might be related to the connectivity of the network as a whole. Still, it is not entirely clear to me whether this would be more effective than more number-driven analyses. I am looking forward to learning more about networks and how they can be used to show valuable features of data!
     
-I got caught in quite a data munging rabbit hole, but crawled out eventually.
+Several challenges came up along the way as I looked for the best way to create a network. After some further exploration of various possibilities for visualizing networks, I decided to work with forceNetwork from the networkD3 package. (In retrospect, I would probably use GGraph instead.) Although I easily visualized a basic version of the network with simpleNetwork, I got caught in quite a data munging rabbit hole upon working on the forceNetwork (but crawled out eventually). After anonymizing the data, I created separate objects for the nodes and edges. This prooved challenging, particularly because I needed to maintain the order of the elements across the data sets while creating the variables I wanted to visualize. At one point, the network was incorrect because the order was not properly maintained.
 
-Using Color Brewer, I attempted to build a scale of color vectors to modify the node colors but could not get it working. 
+Once the data was ready, another challenge involved working with attributes. I tried making the edges directed from the domain of caregivers to the codomain of consumers but for some reason that did not work properly (even though I could do it in another package). I also found some of the options and documentation for forceNetwork lacking. Using Color Brewer, I attempted to build a scale of color vectors to modify the node colors but could not get this to work (the colors are not optimal).  
 
-The arrows did not work for me either — I tried making them edges directed from the domain of caregivers to the codomain of clients.
 
-    
+network
+===================================== 
 ### caregiving network
 
 ```{r setup, include = FALSE}
@@ -98,7 +111,6 @@ plot(net, edge.color=c("dark red", "slategrey")[(E(net)$type=="hyperlink")+1],
 visNetwork(nodes, edges, width="100%", height="400px", main="Network!")
 
 ```
-
 
 ```{r edges, include = FALSE}
 net_edges <- data %>%
@@ -211,20 +223,6 @@ links <- read.csv("Dataset1-Media-Example-EDGES.csv", header=T, as.is=T)
 ```
 
 
-```{r eval = FALSE, include = FALSE}
-library(scales)
-
-net_nodes <- nodes %>%
-  mutate(test = sort(.$id)) #%>% 
-
-  summarize(TTL = sum(TTL))
-
-net_nodes <- cbind(idn = factor(net_nodes$id, levels = net_nodes$id), net_nodes)
-
-# net_nodes <- cbind(idnum = as.numeric(factor(net_nodes$id, levels = net_nodes$id)) -1, net_nodes)
-
-
-```
 
 ```{r munging struggle residues, eval = FALSE, include = FALSE}
 
@@ -275,4 +273,11 @@ df[find.a, "X1"] <- df[find.a, "X2"]
 
 
 ```
+
+
+
+
+
+
+
 
